@@ -1,0 +1,22 @@
+-- Users Table
+CREATE TABLE IF NOT EXISTS users (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+username TEXT UNIQUE NOT NULL,
+password TEXT NOT NULL,
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Stories Table
+CREATE TABLE IF NOT EXISTS stories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    genre TEXT,
+    status TEXT DEFAULT 'planning',
+    target_words INTEGER DEFAULT 0,
+    current_words INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);

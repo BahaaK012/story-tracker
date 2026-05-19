@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 
-
+// inital template just so I can have a commit so quicky this will change (maybe)
 const views = {
     '#/login': `
         <section class="view-section">
@@ -23,7 +23,7 @@ const views = {
     `
 };
 
-// routing logic
+// routing
 function router() {
     const hash = window.location.hash || '#/dashboard';
     
@@ -34,6 +34,6 @@ function router() {
     `;
 }
 
-//listeners for SPA navigation
+//  listeners for SPA navigation
 window.addEventListener('hashchange', router);
 window.addEventListener('DOMContentLoaded', router);

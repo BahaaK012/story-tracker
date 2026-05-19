@@ -45,7 +45,8 @@ body {
     overflow-y: auto;
     scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
-}
+} 
+/*i WILL change a lot of these */
 
 .view-section {
     min-height: 100vh;
