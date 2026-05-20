@@ -1,400 +1,814 @@
+/* ══════════════════════════════════════════════════════════
+   Story Tracker — Frontend Application
+   Vanilla JS, hash-based routing, RESTful API
+   ══════════════════════════════════════════════════════════ */
+
 const app = document.getElementById('app');
 
-async function fetchWithAuth(url, options = {}) {
-    const token = localStorage.getItem('token');
-    if (!token) { window.location.hash = '#/login'; return null; }
-    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...options.headers };
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) { localStorage.removeItem('token'); window.location.hash = '#/login'; return null; }
-    return res;
+// ── Utilities ───────────────────────────────────────────────
+
+function getToken() { return localStorage.getItem('token'); }
+function getUsername() { return localStorage.getItem('username'); }
+function isLoggedIn() { return !!getToken(); }
+
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    updateNav();
+    window.location.hash = '#/login';
 }
 
-window.toggleOther = function(selectId, inputId) {
-    const select = document.getElementById(selectId);
-    const input = document.getElementById(inputId);
-    if (select.value === 'Other') {
-        input.style.display = 'block';
-        input.required = true;
+function updateNav() {
+    const logoutBtn = document.getElementById('nav-logout');
+    const loginLink = document.getElementById('nav-login');
+    if (isLoggedIn()) {
+        if (logoutBtn) logoutBtn.style.display = '';
+        if (loginLink) loginLink.style.display = 'none';
     } else {
-        input.style.display = 'none';
-        input.required = false;
-        input.value = ''; 
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        if (loginLink) loginLink.style.display = '';
     }
-};
+}
+
+async function fetchWithAuth(url, options = {}) {
+    const token = getToken();
+    if (!token) { window.location.hash = '#/login'; return null; }
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...options.headers
+    };
+    try {
+        const res = await fetch(url, { ...options, headers });
+        if (res.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
+            window.location.hash = '#/login';
+            return null;
+        }
+        return res;
+    } catch (err) {
+        showToast('Network error — please check your connection.', 'error');
+        return null;
+    }
+}
+
+function countWords(text) {
+    if (!text || !text.trim()) return 0;
+    return text.trim().split(/\s+/).length;
+}
+
+function formatNumber(n) {
+    return n.toLocaleString();
+}
+
+/**
+ * Convert a date string to a human-readable relative time.
+ *
+ * SQLite CURRENT_TIMESTAMP yields "YYYY-MM-DD HH:MM:SS" (no timezone).
+ * The backend normalises every timestamp to ISO-8601 UTC using strftime,
+ * so all values arriving from the API are "YYYY-MM-DDTHH:MM:SSZ".
+ *
+ * Defence-in-depth: even if a raw SQLite string arrives (no "T"),
+ * we still convert it correctly:
+ *   "YYYY-MM-DD HH:MM:SS"  →  replace space→T, append Z  →  UTC ISO
+ *   "YYYY-MM-DDTHH:MM:SS"  →  append Z                   →  UTC ISO
+ *   "YYYY-MM-DDTHH:MM:SSZ" →  use as-is                  →  UTC ISO
+ */
+function timeAgo(dateStr) {
+    if (!dateStr) return '';
+
+    let iso = dateStr;
+
+    // If there is no "T" separator it is a raw SQLite "YYYY-MM-DD HH:MM:SS"
+    if (!iso.includes('T')) {
+        iso = iso.replace(' ', 'T') + 'Z';
+    } else if (!iso.endsWith('Z') && !iso.includes('+') && !/[+-]\d{2}:\d{2}$/.test(iso)) {
+        // Has T but no timezone marker — treat as UTC
+        iso = iso + 'Z';
+    }
+    // If it ends with Z or has an explicit offset, use it as-is
+
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return '';
+
+    const diff = Date.now() - date.getTime();
+    // Guard against small clock skew producing a slightly negative diff
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ── Toast Notifications ──────────────────────────────────────
+
+function showToast(message, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.style.cssText = `
+            position: fixed; bottom: 1.5rem; right: 1.5rem;
+            display: flex; flex-direction: column; gap: 0.5rem; z-index: 9999;
+        `;
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type === 'error' ? 'error' : type === 'success' ? 'success' : 'info'}`;
+    toast.style.cssText = `max-width: 320px; box-shadow: var(--shadow); animation: fadeIn 0.2s ease;`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
+
+// ── Router ───────────────────────────────────────────────────
+
+window.addEventListener('hashchange', router);
+window.addEventListener('DOMContentLoaded', () => {
+    // Init theme
+    if (localStorage.getItem('theme') === 'light') document.body.classList.add('theme-light');
+
+    // Nav events
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+        document.body.classList.toggle('theme-light');
+        localStorage.setItem('theme', document.body.classList.contains('theme-light') ? 'light' : 'dark');
+    });
+    document.getElementById('nav-logout').addEventListener('click', logout);
+
+    updateNav();
+    router();
+});
 
 async function router() {
-    let hash = window.location.hash || '#/dashboard';
-    if (hash === '#/dashboard' || hash === '#/stories') return renderDashboard();
+    if (!isLoggedIn()) {
+        updateNav();
+        return renderLogin();
+    }
+    updateNav();
+    const hash = window.location.hash || '#/dashboard';
+    if (hash === '#/dashboard' || hash === '#/' || hash === '') return renderDashboard();
+    if (hash === '#/search') return renderSearch();
     if (hash.startsWith('#/hub/')) return renderHub(hash.split('/')[2]);
     if (hash === '#/login') return renderLogin();
-    app.innerHTML = `<section class="view-section"><h2>404 - Page Not Found</h2></section>`;
+    app.innerHTML = `<section class="view-section"><h2>404</h2><p>Page not found.</p></section>`;
 }
 
-// --- VIEWS ---
-function renderLogin() { 
+// ── Login / Register ─────────────────────────────────────────
+
+function renderLogin() {
     app.innerHTML = `
-        <section class="view-section">
-            <h2>Access Your Desk</h2>
-            <div style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 2rem;">
-                <form id="login-form" style="display: flex; flex-direction: column; gap: 1rem;">
-                    <input type="text" id="login-user" placeholder="Username" style="padding: 0.8rem; background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;" required>
-                    <input type="password" id="login-pass" placeholder="Password" style="padding: 0.8rem; background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;" required>
-                    <button type="submit" class="theme-btn" style="padding: 0.8rem;">Enter</button>
+        <section class="view-section" style="justify-content: center; max-width: 480px;">
+            <h2>Writer's Desk</h2>
+
+            <div id="auth-message"></div>
+
+            <div class="card" style="width:100%; margin-bottom: 1.5rem;">
+                <h3>Sign In</h3>
+                <form id="login-form" style="display:flex; flex-direction:column; gap:0.75rem; margin-top:1rem;">
+                    <input type="text" id="login-user" placeholder="Username" required autocomplete="username">
+                    <input type="password" id="login-pass" placeholder="Password" required autocomplete="current-password">
+                    <button type="submit" class="btn btn-primary">Enter</button>
                 </form>
-                <form id="register-form" style="display: flex; flex-direction: column; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 2rem;">
-                    <h3>New Writer</h3>
-                    <input type="text" id="reg-user" placeholder="Choose a Username" style="padding: 0.8rem; background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;" required>
-                    <input type="password" id="reg-pass" placeholder="Choose a Password" style="padding: 0.8rem; background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;" required>
-                    <button type="submit" class="theme-btn" style="padding: 0.8rem;">Register Account</button>
+            </div>
+
+            <div class="card" style="width:100%;">
+                <h3>New Writer</h3>
+                <form id="register-form" style="display:flex; flex-direction:column; gap:0.75rem; margin-top:1rem;">
+                    <input type="text" id="reg-user" placeholder="Choose a username" required autocomplete="username">
+                    <input type="password" id="reg-pass" placeholder="Password (min. 6 characters)" required autocomplete="new-password">
+                    <button type="submit" class="btn btn-primary">Create Account</button>
                 </form>
-                <p id="auth-msg" style="color: var(--accent); font-weight: bold; text-align: center; margin-top: 1rem;"></p>
             </div>
         </section>`;
-    setupAuthListeners();
+
+    const msgBox = document.getElementById('auth-message');
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.textContent = 'Signing in…'; btn.disabled = true;
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: document.getElementById('login-user').value,
+                    password: document.getElementById('login-pass').value
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', data.username);
+                updateNav();
+                window.location.hash = '#/dashboard';
+            } else {
+                msgBox.innerHTML = `<div class="alert alert-error">${escHtml(data.error)}</div>`;
+            }
+        } catch { msgBox.innerHTML = `<div class="alert alert-error">Network error</div>`; }
+        finally { btn.textContent = 'Enter'; btn.disabled = false; }
+    });
+
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.textContent = 'Creating…'; btn.disabled = true;
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: document.getElementById('reg-user').value,
+                    password: document.getElementById('reg-pass').value
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                msgBox.innerHTML = `<div class="alert alert-success">${escHtml(data.message)} You can now sign in.</div>`;
+                document.getElementById('register-form').reset();
+            } else {
+                msgBox.innerHTML = `<div class="alert alert-error">${escHtml(data.error)}</div>`;
+            }
+        } catch { msgBox.innerHTML = `<div class="alert alert-error">Network error</div>`; }
+        finally { btn.textContent = 'Create Account'; btn.disabled = false; }
+    });
 }
 
+// ── Dashboard ────────────────────────────────────────────────
+
 async function renderDashboard() {
+    app.innerHTML = `<section class="view-section"><h2>${escHtml(getUsername())}'s Dashboard</h2><p style="color:var(--text-muted)">Loading…</p></section>`;
+
     const res = await fetchWithAuth('/api/stories');
     if (!res) return;
     const stories = await res.json();
-    const username = localStorage.getItem('username');
 
-    let html = `
-        <section class="view-section">
-            <h2>${username}'s Dashboard</h2>
-            <div style="width: 100%; max-width: 800px; margin-bottom: 2rem; padding: 1.5rem; background: var(--bg-surface); border: 1px solid var(--border-color);">
-                <h3>Start a New Story</h3>
-                <form id="new-story-form" style="display: flex; gap: 1rem; margin-top: 1rem; align-items: flex-start;">
-                    <input type="text" id="new-title" placeholder="Story Title" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <div style="flex: 2; display: flex; flex-direction: column; gap: 0.5rem;">
-                        <select id="new-genre" onchange="toggleOther('new-genre', 'new-genre-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                            <option value="" disabled selected>Select Genre...</option>
-                            <option value="Fantasy">Fantasy</option>
-                            <option value="Sci-Fi">Sci-Fi</option>
-                            <option value="Mystery/Thriller">Mystery/Thriller</option>
-                            <option value="Romance">Romance</option>
-                            <option value="Historical">Historical</option>
-                            <option value="Horror">Horror</option>
-                            <option value="Other">Other...</option>
-                        </select>
-                        <input type="text" id="new-genre-other" placeholder="Type custom genre..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+    let statsHtml = '';
+    if (stories.length > 0) {
+        const totalWords = stories.reduce((s, x) => s + (x.current_words || 0), 0);
+        const avgComplete = stories.length
+            ? Math.round(stories.reduce((s, x) => s + Math.min(100, ((x.current_words || 0) / (x.target_words || 80000)) * 100), 0) / stories.length)
+            : 0;
+
+        statsHtml = `
+            <div style="width:100%; max-width:800px; margin-bottom:2rem;">
+                <h3>Overview</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value">${stories.length}</span>
+                        <div class="stat-label">Projects</div>
                     </div>
-                    <button type="submit" class="theme-btn" style="flex: 1;">Create</button>
+                    <div class="stat-card">
+                        <span class="stat-value">${formatNumber(totalWords)}</span>
+                        <div class="stat-label">Total Words</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">${avgComplete}%</span>
+                        <div class="stat-label">Avg. Progress</div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">${Math.ceil(totalWords / 238)}</span>
+                        <div class="stat-label">Est. Read Time (min)</div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    let storiesHtml = '';
+    if (stories.length === 0) {
+        storiesHtml = `<p style="color:var(--text-muted); padding: 2rem 0;">Your desk is empty. Start a story below.</p>`;
+    } else {
+        storiesHtml = stories.map(s => {
+            const pct = Math.min(100, Math.round(((s.current_words || 0) / (s.target_words || 80000)) * 100));
+            return `
+                <div class="story-card">
+                    <div class="story-card-info">
+                        <h4>${escHtml(s.title)}</h4>
+                        <div class="meta">
+                            <span>${escHtml(s.genre || 'No genre')}</span>
+                            <span>${formatNumber(s.current_words || 0)} / ${formatNumber(s.target_words || 80000)} words</span>
+                            <span>${timeAgo(s.last_edited)}</span>
+                        </div>
+                        <div class="progress-wrap" style="margin-top:0.5rem; margin-bottom:0;">
+                            <div class="progress-bar-track">
+                                <div class="progress-bar-fill" style="width:${pct}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="story-card-actions">
+                        <a href="#/hub/${s.id}" class="btn btn-primary btn-sm">Open Hub</a>
+                        <button class="btn btn-danger btn-sm" onclick="deleteStory(${s.id}, '${escHtml(s.title).replace(/'/g, "\\'")}')">✕</button>
+                    </div>
+                </div>`;
+        }).join('');
+    }
+
+    app.innerHTML = `
+        <section class="view-section">
+            <h2>${escHtml(getUsername())}'s Dashboard</h2>
+
+            ${statsHtml}
+
+            <div class="card" style="width:100%; max-width:800px; margin-bottom:2rem;">
+                <h3>Start a New Story</h3>
+                <form id="new-story-form" style="display:flex; gap:0.75rem; margin-top:1rem; flex-wrap:wrap; align-items:flex-end;">
+                    <div style="flex:2; min-width:180px;">
+                        <input type="text" id="new-title" placeholder="Story Title" required>
+                    </div>
+                    <div style="flex:2; min-width:140px;">
+                        <select id="new-genre">
+                            <option value="">No genre</option>
+                            <option>Fantasy</option>
+                            <option>Sci-Fi</option>
+                            <option>Mystery/Thriller</option>
+                            <option>Romance</option>
+                            <option>Historical</option>
+                            <option>Horror</option>
+                            <option>Literary Fiction</option>
+                        </select>
+                    </div>
+                    <div style="flex:1; min-width:120px;">
+                        <input type="number" id="new-target" placeholder="Target words" value="80000" min="100">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="flex-shrink:0;">Create</button>
                 </form>
             </div>
-            <div style="width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 1rem;">
-                <h3>Your Projects</h3>
-    `;
 
-    if (stories.length === 0) { html += `<p>Your desk is empty. Start a new story above.</p>`; } 
-    else {
-        stories.forEach(story => {
-            html += `
-                <div style="padding: 1rem; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface);">
-                    <div>
-                        <h4 style="color: var(--accent); font-size: 1.2rem; margin-bottom: 0.3rem;">${story.title}</h4>
-                        <small style="color: var(--text-muted);">${story.genre}</small>
-                    </div>
-                    <a href="#/hub/${story.id}" class="theme-btn" style="text-decoration: none;">Open Project Hub</a>
-                </div>`;
-        });
-    }
-    html += `</div></section>`;
-    app.innerHTML = html;
+            <div style="width:100%; max-width:800px; display:flex; flex-direction:column; gap:0.75rem;">
+                <h3>Your Projects</h3>
+                ${storiesHtml}
+            </div>
+        </section>`;
 
     document.getElementById('new-story-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const selectVal = document.getElementById('new-genre').value;
-        const finalGenre = selectVal === 'Other' ? document.getElementById('new-genre-other').value : selectVal;
-        if(!finalGenre) return alert("Please select or type a genre.");
-        await fetchWithAuth('/api/stories', { method: 'POST', body: JSON.stringify({ title: document.getElementById('new-title').value, genre: finalGenre }) });
-        renderDashboard();
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.disabled = true; btn.textContent = 'Creating…';
+        const res = await fetchWithAuth('/api/stories', {
+            method: 'POST',
+            body: JSON.stringify({
+                title: document.getElementById('new-title').value,
+                genre: document.getElementById('new-genre').value,
+                target_words: parseInt(document.getElementById('new-target').value) || 80000
+            })
+        });
+        btn.disabled = false; btn.textContent = 'Create';
+        if (res && res.ok) { showToast('Story created!', 'success'); renderDashboard(); }
+        else if (res) { const d = await res.json(); showToast(d.error || 'Failed to create story', 'error'); }
     });
 }
 
-// --- THE PROJECT HUB ---
+window.deleteStory = async function(id, title) {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    const res = await fetchWithAuth(`/api/stories/${id}`, { method: 'DELETE' });
+    if (res && res.ok) { showToast('Story deleted.', 'success'); renderDashboard(); }
+    else showToast('Failed to delete story.', 'error');
+};
+
+// ── Search ───────────────────────────────────────────────────
+
+async function renderSearch() {
+    app.innerHTML = `
+        <section class="view-section">
+            <h2>Search</h2>
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Search stories, characters, lore…" autofocus>
+                <button class="btn btn-primary" onclick="runSearch()">Search</button>
+            </div>
+            <div id="search-results" style="width:100%;"></div>
+        </section>`;
+
+    document.getElementById('search-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') runSearch();
+    });
+}
+
+window.runSearch = async function() {
+    const q = document.getElementById('search-input').value.trim();
+    if (!q) return;
+    const resultsEl = document.getElementById('search-results');
+    resultsEl.innerHTML = `<p style="color:var(--text-muted)">Searching…</p>`;
+    const res = await fetchWithAuth(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!res) return;
+    const data = await res.json();
+    if (data.error) { resultsEl.innerHTML = `<div class="alert alert-error">${escHtml(data.error)}</div>`; return; }
+
+    const total = data.stories.length + data.characters.length + data.lore.length;
+    if (total === 0) {
+        resultsEl.innerHTML = `<p style="color:var(--text-muted)">No results for "<strong>${escHtml(q)}</strong>".</p>`;
+        return;
+    }
+
+    let html = `<p style="color:var(--text-muted); margin-bottom:1rem;">${total} result${total !== 1 ? 's' : ''} for "<strong>${escHtml(q)}</strong>"</p>`;
+
+    if (data.stories.length) {
+        html += `<div class="search-result-section"><h4>Stories (${data.stories.length})</h4>`;
+        html += data.stories.map(s => `
+            <div class="card" style="margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+                <div><strong style="color:var(--accent)">${escHtml(s.title)}</strong> <span style="color:var(--text-muted); font-size:0.85rem;">${escHtml(s.genre || '')}</span></div>
+                <a href="#/hub/${s.id}" class="btn btn-sm">Open</a>
+            </div>`).join('');
+        html += `</div>`;
+    }
+
+    if (data.characters.length) {
+        html += `<div class="search-result-section"><h4>Characters (${data.characters.length})</h4>`;
+        html += data.characters.map(c => `
+            <div class="card" style="margin-bottom:0.5rem;">
+                <strong>${escHtml(c.name)}</strong>
+                <span class="badge" style="margin-left:0.5rem;">${escHtml(c.role)}</span>
+                <div style="font-size:0.82rem; color:var(--text-muted);">in <a href="#/hub/${c.story_id}" style="color:var(--accent);">${escHtml(c.story_title)}</a></div>
+            </div>`).join('');
+        html += `</div>`;
+    }
+
+    if (data.lore.length) {
+        html += `<div class="search-result-section"><h4>Lore (${data.lore.length})</h4>`;
+        html += data.lore.map(l => `
+            <div class="card" style="margin-bottom:0.5rem;">
+                <div class="lore-category">${escHtml(l.category)}</div>
+                <strong>${escHtml(l.title)}</strong>
+                <div style="font-size:0.82rem; color:var(--text-muted);">in <a href="#/hub/${l.story_id}" style="color:var(--accent);">${escHtml(l.story_title)}</a></div>
+            </div>`).join('');
+        html += `</div>`;
+    }
+
+    resultsEl.innerHTML = html;
+};
+
+// ── Project Hub ───────────────────────────────────────────────
+
 async function renderHub(storyId) {
     const res = await fetchWithAuth(`/api/stories/${storyId}`);
     if (!res) return;
+    if (!res.ok) {
+        app.innerHTML = `<section class="view-section"><h2>Story not found</h2><a href="#/dashboard" class="btn">← Back</a></section>`;
+        return;
+    }
     const story = await res.json();
 
     app.innerHTML = `
-        <section class="view-section" id="editor-container" style="padding-top: 2rem;">
-            <div style="width: 100%; max-width: 900px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <a href="#/dashboard" style="color: var(--text-muted); text-decoration: none;">← Back to Dashboard</a>
-                <h2 style="border: none; margin: 0;">${story.title}</h2>
+        <section class="view-section" id="editor-container">
+            <div style="display:flex; align-items:center; justify-content:space-between; width:100%; margin-bottom:2rem; flex-wrap:wrap; gap:1rem;">
+                <div>
+                    <a href="#/dashboard" style="font-size:0.85rem; color:var(--text-muted); text-decoration:none;">← Dashboard</a>
+                    <h2 style="margin-bottom:0; border:none; padding:0;">${escHtml(story.title)}</h2>
+                    <p style="color:var(--text-muted); font-size:0.85rem;">${escHtml(story.genre || 'No genre')}</p>
+                </div>
             </div>
 
-            <div style="display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; width: 100%; max-width: 900px; overflow-x: auto;">
-                <button class="theme-btn" onclick="switchTab('cast')">Characters</button>
-                <button class="theme-btn" onclick="switchTab('lore')">World & Plot</button>
-                <button class="theme-btn" onclick="switchTab('manuscript')">Manuscript</button>
-                <button class="theme-btn" onclick="switchTab('chaos')" style="background: var(--text-main); color: var(--bg-main);">🎲 Chaos Engine</button>
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="switchTab('stats', this)">📊 Stats</button>
+                <button class="tab-btn" onclick="switchTab('manuscript', this)">✏ Manuscript</button>
+                <button class="tab-btn" onclick="switchTab('characters', this)">👤 Characters</button>
+                <button class="tab-btn" onclick="switchTab('lore', this)">📚 Lore</button>
+                <button class="tab-btn" onclick="switchTab('chaos', this)">🎲 Chaos Engine</button>
             </div>
 
-            <div id="tab-cast" class="hub-tab" style="width: 100%; max-width: 900px; display: none;">
-                <h3>Character Roster</h3>
-                <form id="char-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; background: var(--bg-surface); padding: 1.5rem; border: 1px solid var(--border-color);">
-                    
-                    <div style="display: flex; gap: 1rem;">
-                        <input type="text" id="char-name" placeholder="Character Name" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                        
-                        <select id="char-role" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                            <option value="Protagonist">Protagonist</option>
-                            <option value="Antagonist">Antagonist</option>
-                            <option value="Mentor">Mentor</option>
-                            <option value="Sidekick">Sidekick</option>
-                            <option value="Love Interest">Love Interest</option>
-                            <option value="Comic Relief">Comic Relief</option>
-                            <option value="Red Shirt (Expendable)">Red Shirt</option>
-                            <option value="Other">Other</option>
+            <!-- Stats Tab -->
+            <div id="tab-stats" class="hub-tab" style="width:100%;">
+                <div id="stats-content"><p style="color:var(--text-muted)">Loading stats…</p></div>
+            </div>
+
+            <!-- Manuscript Tab -->
+            <div id="tab-manuscript" class="hub-tab" style="width:100%; display:none;">
+                <div style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center; flex-wrap:wrap;">
+                    <button class="btn btn-sm" onclick="setMode('classic')">Classic</button>
+                    <button class="btn btn-sm" onclick="setMode('typewriter')">Typewriter</button>
+                    <span id="word-count-live" style="color:var(--text-muted); font-size:0.85rem; margin-left:auto;"></span>
+                </div>
+                <textarea class="editor-area" id="story-content" placeholder="Start drafting…"></textarea>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+                    <span id="save-status" style="color:var(--text-muted); font-size:0.85rem;"></span>
+                    <button id="save-btn" class="btn btn-primary">Save Draft</button>
+                </div>
+            </div>
+
+            <!-- Characters Tab -->
+            <div id="tab-characters" class="hub-tab" style="width:100%; display:none;">
+                <form id="char-form" class="card" style="margin-bottom:1.5rem; display:flex; flex-direction:column; gap:0.75rem;">
+                    <h3 style="margin:0;">Add Character</h3>
+                    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                        <input type="text" id="char-name" placeholder="Name" required style="flex:2; min-width:140px;">
+                        <select id="char-role" style="flex:1; min-width:120px;">
+                            <option>Protagonist</option>
+                            <option selected>Supporting</option>
+                            <option>Antagonist</option>
+                            <option>Mentor</option>
+                            <option>Comic Relief</option>
                         </select>
-                        
-                        <select id="char-status" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                            <option value="Alive">🟢 Alive</option>
-                            <option value="Dead">💀 Dead</option>
-                            <option value="Missing">❓ Missing</option>
-                            <option value="Undead/Ghost">👻 Undead</option>
+                        <select id="char-status" style="flex:1; min-width:100px;">
+                            <option selected>Alive</option>
+                            <option>Dead</option>
+                            <option>Unknown</option>
                         </select>
                     </div>
-
-                    <div style="display: flex; gap: 1rem;">
-                        <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem;">
-                            <select id="char-trait" onchange="toggleOther('char-trait', 'char-trait-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                                <option value="" disabled selected>Dominant Trait...</option>
-                                <option value="Brave">Brave</option>
-                                <option value="Cunning">Cunning</option>
-                                <option value="Loyal">Loyal</option>
-                                <option value="Arrogant">Arrogant</option>
-                                <option value="Cowardly">Cowardly</option>
-                                <option value="Charismatic">Charismatic</option>
-                                <option value="Unhinged">Unhinged</option>
-                                <option value="Naïve">Naïve</option>
-                                <option value="Other">Other...</option>
-                            </select>
-                            <input type="text" id="char-trait-other" placeholder="Type custom trait..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                        </div>
-                    </div>
-
-                    <textarea id="char-desc" placeholder="Character background, secrets, or notes..." rows="3" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
-
-                    <button type="submit" class="theme-btn" style="align-self: flex-start;">Add Character</button>
+                    <input type="text" id="char-trait" placeholder="Core trait (e.g. Brave, Cunning, Loyal…)">
+                    <textarea id="char-desc" placeholder="Brief description or notes…" rows="2" style="resize:vertical;"></textarea>
+                    <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Add Character</button>
                 </form>
-                <div id="char-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
+                <div id="char-list" style="display:flex; flex-direction:column; gap:0.6rem;"></div>
             </div>
 
-            <div id="tab-lore" class="hub-tab" style="width: 100%; max-width: 900px; display: none;">
-                <h3>World Building & Plot Notes</h3>
-                <form id="lore-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; background: var(--bg-surface); padding: 1.5rem; border: 1px solid var(--border-color);">
-                    
-                    <div style="display: flex; gap: 1rem;">
-                        <select id="lore-cat" onchange="toggleOther('lore-cat', 'lore-cat-other')" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                            <option value="Plot Point">Plot Point / Event</option>
-                            <option value="Magic / Rules">Magic / Rules</option>
-                            <option value="Politics / Factions">Politics / Factions</option>
-                            <option value="History / Myth">History / Myth</option>
-                            <option value="Geography / Location">Geography / Location</option>
-                            <option value="Technology">Technology</option>
-                            <option value="Other">Other...</option>
+            <!-- Lore Tab -->
+            <div id="tab-lore" class="hub-tab" style="width:100%; display:none;">
+                <form id="lore-form" class="card" style="margin-bottom:1.5rem; display:flex; flex-direction:column; gap:0.75rem;">
+                    <h3 style="margin:0;">Pin Lore Entry</h3>
+                    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                        <select id="lore-cat" style="flex:1; min-width:130px;">
+                            <option>General</option>
+                            <option>World Building</option>
+                            <option>Magic System</option>
+                            <option>History</option>
+                            <option>Faction</option>
+                            <option>Location</option>
+                            <option>Plot Thread</option>
                         </select>
-                        <input type="text" id="lore-cat-other" placeholder="Custom Category..." style="display:none; flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                        
-                        <input type="text" id="lore-title" placeholder="Title (e.g., The Fall of the Republic)" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                        <input type="text" id="lore-title" placeholder="Entry title" required style="flex:3; min-width:180px;">
                     </div>
-                    
-                    <textarea id="lore-content" placeholder="Dump your detailed notes here..." rows="4" required style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
-                    
-                    <button type="submit" class="theme-btn" style="align-self: flex-start;">Pin to Board</button>
+                    <textarea id="lore-content" placeholder="Your notes…" rows="3" style="resize:vertical;"></textarea>
+                    <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Pin to Board</button>
                 </form>
-                <div id="lore-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
+                <div id="lore-list" style="display:flex; flex-direction:column; gap:0.6rem;"></div>
             </div>
 
-            <div id="tab-manuscript" class="hub-tab" style="width: 100%; max-width: 900px; display: block;">
-                <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                    <button class="theme-btn" onclick="setMode('classic')" style="margin-right: 0.5rem;">Classic</button>
-                    <button class="theme-btn" onclick="setMode('typewriter')">Typewriter</button>
-                </div>
-                <textarea id="story-content" style="width: 100%; height: 50vh; background: transparent; color: inherit; border: none; outline: none; resize: none; line-height: 1.8; font-size: inherit; font-family: inherit;" placeholder="Start drafting...">${story.content || ''}</textarea>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
-                    <span id="save-status" style="color: var(--accent);"></span>
-                    <button id="save-btn" class="theme-btn">Save Draft</button>
-                </div>
+            <!-- Chaos Tab -->
+            <div id="tab-chaos" class="hub-tab" style="width:100%; display:none; text-align:center; padding:3rem 1rem;">
+                <h3 style="font-size:1.8rem; margin-bottom:0.75rem;">The Chaos Engine</h3>
+                <p style="color:var(--text-muted); margin-bottom:2rem;">Stuck? Let fate decide your next plot twist.</p>
+                <button class="btn btn-primary" onclick="triggerChaos()" style="font-size:1.1rem; padding:0.75rem 2rem;">Generate Plot Twist</button>
+                <div id="chaos-output" style="display:none; margin-top:2.5rem; font-size:1.3rem; font-family:var(--font-mono); color:var(--accent); padding:1.5rem; border:2px dashed var(--border); border-radius:var(--radius);"></div>
             </div>
+        </section>`;
 
-            <div id="tab-chaos" class="hub-tab" style="width: 100%; max-width: 900px; display: none; text-align: center; padding: 4rem 2rem;">
-                <h3 style="font-size: 2rem; margin-bottom: 1rem;">The Chaos Engine</h3>
-                <p style="color: var(--text-muted); margin-bottom: 2rem;">Writer's block? Click the button to inject absolute chaos into your story.</p>
-                <button class="theme-btn" onclick="triggerChaos()" style="padding: 1rem 2rem; font-size: 1.2rem; background: var(--text-main); color: var(--bg-main); font-weight: bold;">Generate Plot Twist</button>
-                
-                <div id="chaos-output" style="margin-top: 3rem; font-size: 1.5rem; font-family: 'Courier New', Courier, monospace; color: var(--accent); min-height: 100px; padding: 2rem; border: 2px dashed var(--border-color); display: none;">
-                </div>
-            </div>
-        </section>
-    `;
+    // ── Set textarea content safely (avoids HTML-encoding artefacts) ──
+    document.getElementById('story-content').value = story.content || '';
 
-    // Tab Switching Logic
-    window.switchTab = function(tabName) {
+    // ── Tab switching ──
+    window.switchTab = function(tabName, btn) {
         document.querySelectorAll('.hub-tab').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).style.display = 'block';
+        if (btn) btn.classList.add('active');
     };
 
-    // Load Data
+    // ── Load stats ──
+    loadStats(storyId);
+
+    // ── Load lists ──
     loadCharacters(storyId);
     loadLore(storyId);
 
-    // Form Submissions: Characters
-    document.getElementById('char-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const selectVal = document.getElementById('char-trait').value;
-        const finalTrait = selectVal === 'Other' ? document.getElementById('char-trait-other').value : selectVal;
-        if(!finalTrait) return alert("Please select or type a trait.");
-
-        await fetchWithAuth(`/api/stories/${storyId}/hub/characters`, {
-            method: 'POST',
-            body: JSON.stringify({ 
-                name: document.getElementById('char-name').value, 
-                role: document.getElementById('char-role').value, 
-                trait: finalTrait,
-                status: document.getElementById('char-status').value,
-                description: document.getElementById('char-desc').value
-            })
-        });
-        document.getElementById('char-form').reset();
-        document.getElementById('char-trait-other').style.display = 'none';
-        loadCharacters(storyId);
-    });
-
-    // Form Submissions: Lore
-    document.getElementById('lore-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const selectVal = document.getElementById('lore-cat').value;
-        const finalCat = selectVal === 'Other' ? document.getElementById('lore-cat-other').value : selectVal;
-
-        await fetchWithAuth(`/api/stories/${storyId}/hub/lore`, {
-            method: 'POST',
-            body: JSON.stringify({ 
-                category: finalCat,
-                title: document.getElementById('lore-title').value, 
-                content: document.getElementById('lore-content').value 
-            })
-        });
-        document.getElementById('lore-form').reset();
-        document.getElementById('lore-cat-other').style.display = 'none';
-        loadLore(storyId);
-    });
-
-    // Manuscript Saving
+    // ── Manuscript ──
     const textArea = document.getElementById('story-content');
     const saveBtn = document.getElementById('save-btn');
     const saveStatus = document.getElementById('save-status');
-    if(textArea) {
-        textArea.addEventListener('input', () => saveStatus.textContent = '* Unsaved changes');
-        saveBtn.addEventListener('click', async () => {
-            saveStatus.textContent = 'Saving...';
-            await fetchWithAuth(`/api/stories/${storyId}`, {
-                method: 'PUT',
-                body: JSON.stringify({ content: textArea.value, current_words: textArea.value.trim() ? textArea.value.trim().split(/\s+/).length : 0 })
-            });
-            saveStatus.textContent = 'Saved safely.';
-            setTimeout(() => saveStatus.textContent = '', 2000);
-        });
+    const wordCountLive = document.getElementById('word-count-live');
+
+    function updateWordCount() {
+        const wc = countWords(textArea.value);
+        const target = story.target_words || 80000;
+        wordCountLive.textContent = `${formatNumber(wc)} / ${formatNumber(target)} words`;
     }
+    updateWordCount();
+
+    textArea.addEventListener('input', () => {
+        saveStatus.textContent = '· Unsaved';
+        updateWordCount();
+    });
+
+    saveBtn.addEventListener('click', async () => {
+        saveStatus.textContent = 'Saving…';
+        saveBtn.disabled = true;
+        const content = textArea.value;
+        const wc = countWords(content);
+        const saveRes = await fetchWithAuth(`/api/stories/${storyId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ content, current_words: wc })
+        });
+        saveBtn.disabled = false;
+        if (saveRes && saveRes.ok) {
+            saveStatus.textContent = 'Saved ✓';
+            // Keep local story object in sync so stats are consistent
+            story.current_words = wc;
+            story.content = content;
+            // Refresh the Stats tab so its word count matches the saved content
+            loadStats(storyId);
+            setTimeout(() => { saveStatus.textContent = ''; }, 2500);
+        } else {
+            saveStatus.textContent = 'Save failed.';
+        }
+    });
+
+    // ── Characters ──
+    document.getElementById('char-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('[type="submit"]');
+        btn.disabled = true;
+        const charRes = await fetchWithAuth(`/api/stories/${storyId}/hub/characters`, {
+            method: 'POST',
+            body: JSON.stringify({
+                name: document.getElementById('char-name').value,
+                role: document.getElementById('char-role').value,
+                status: document.getElementById('char-status').value,
+                trait: document.getElementById('char-trait').value,
+                description: document.getElementById('char-desc').value
+            })
+        });
+        btn.disabled = false;
+        if (charRes && charRes.ok) {
+            e.target.reset();
+            loadCharacters(storyId);
+            showToast('Character added.', 'success');
+        } else {
+            const errData = charRes ? await charRes.json().catch(() => ({})) : {};
+            showToast(errData.error || 'Failed to add character.', 'error');
+        }
+    });
+
+    // ── Lore ──
+    document.getElementById('lore-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = e.target.querySelector('[type="submit"]');
+        btn.disabled = true;
+        const loreRes = await fetchWithAuth(`/api/stories/${storyId}/hub/lore`, {
+            method: 'POST',
+            body: JSON.stringify({
+                category: document.getElementById('lore-cat').value,
+                title: document.getElementById('lore-title').value,
+                content: document.getElementById('lore-content').value
+            })
+        });
+        btn.disabled = false;
+        if (loreRes && loreRes.ok) {
+            e.target.reset();
+            loadLore(storyId);
+            showToast('Lore pinned.', 'success');
+        } else {
+            const errData = loreRes ? await loreRes.json().catch(() => ({})) : {};
+            showToast(errData.error || 'Failed to save lore.', 'error');
+        }
+    });
 }
 
-// Fetchers
+// ── Stats loader ─────────────────────────────────────────────
+
+async function loadStats(storyId) {
+    const statsEl = document.getElementById('stats-content');
+    if (!statsEl) return; // tab may not be in DOM if user navigated away
+    const res = await fetchWithAuth(`/api/stories/${storyId}/stats`);
+    if (!res || !res.ok) {
+        statsEl.innerHTML = `<div class="alert alert-error">Failed to load stats.</div>`;
+        return;
+    }
+    const s = await res.json();
+    const pct = s.completionPercentage;
+
+    statsEl.innerHTML = `
+        <div class="stats-grid" style="margin-bottom:1.5rem;">
+            <div class="stat-card">
+                <span class="stat-value">${formatNumber(s.totalWordCount)}</span>
+                <div class="stat-label">Words Written</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">${pct}%</span>
+                <div class="stat-label">Complete</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">${s.characterCount}</span>
+                <div class="stat-label">Characters</div>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">${s.estimatedReadingTimeMinutes}</span>
+                <div class="stat-label">Min to Read</div>
+            </div>
+        </div>
+        <div class="progress-wrap">
+            <div class="progress-label">
+                <span>Progress to target (${formatNumber(s.targetWordCount)} words)</span>
+                <span>${pct}%</span>
+            </div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" style="width:${pct}%"></div>
+            </div>
+        </div>
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+            ${formatNumber(Math.max(0, s.targetWordCount - s.totalWordCount))} words remaining
+            · Last edited ${timeAgo(s.lastEdited)}
+        </p>`;
+}
+
+// ── Characters loader ─────────────────────────────────────────
+
 async function loadCharacters(storyId) {
     const res = await fetchWithAuth(`/api/stories/${storyId}/hub/characters`);
+    if (!res) return;
     const chars = await res.json();
     const list = document.getElementById('char-list');
+    if (!list) return;
+    if (!chars.length) { list.innerHTML = `<p style="color:var(--text-muted)">No characters yet.</p>`; return; }
     list.innerHTML = chars.map(c => `
-        <div style="padding: 1rem; border-left: 3px solid ${c.status === 'Dead' ? '#ff4444' : 'var(--accent)'}; background: var(--bg-surface);">
-            <div style="display: flex; justify-content: space-between;">
-                <strong>${c.name}</strong> 
-                <span style="font-size: 0.9rem;">${c.status}</span>
+        <div class="char-card ${c.status === 'Dead' ? 'dead' : ''}">
+            <div style="flex:1;">
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.2rem;">
+                    <strong>${escHtml(c.name)}</strong>
+                    <span class="badge ${c.status === 'Dead' ? 'badge-danger' : 'badge-success'}">${escHtml(c.status)}</span>
+                    <span class="badge">${escHtml(c.role)}</span>
+                </div>
+                ${c.trait ? `<div style="color:var(--text-muted); font-size:0.85rem;">Trait: ${escHtml(c.trait)}</div>` : ''}
+                ${c.description ? `<div style="font-size:0.88rem; margin-top:0.3rem;">${escHtml(c.description)}</div>` : ''}
             </div>
-            <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">${c.role} | Trait: ${c.trait}</div>
-            ${c.description ? `<em style="font-size: 0.9rem; opacity: 0.8;">${c.description}</em>` : ''}
-        </div>
-    `).join('');
+            <button class="btn btn-danger btn-sm" onclick="deleteCharacter(${storyId}, ${c.id})">✕</button>
+        </div>`).join('');
 }
+
+window.deleteCharacter = async function(storyId, charId) {
+    if (!confirm('Delete this character?')) return;
+    const res = await fetchWithAuth(`/api/stories/${storyId}/hub/characters/${charId}`, { method: 'DELETE' });
+    if (res && res.ok) {
+        loadCharacters(storyId);
+        // Refresh stats since character count changed
+        loadStats(storyId);
+        showToast('Character removed.', 'success');
+    } else {
+        showToast('Failed to delete.', 'error');
+    }
+};
+
+// ── Lore loader ───────────────────────────────────────────────
 
 async function loadLore(storyId) {
     const res = await fetchWithAuth(`/api/stories/${storyId}/hub/lore`);
+    if (!res) return;
     const lore = await res.json();
     const list = document.getElementById('lore-list');
+    if (!list) return;
+    if (!lore.length) { list.innerHTML = `<p style="color:var(--text-muted)">No lore pinned yet.</p>`; return; }
     list.innerHTML = lore.map(l => `
-        <div style="padding: 1rem; border: 1px solid var(--border-color); background: var(--bg-surface);">
-            <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.2rem;">${l.category}</div>
-            <strong style="color: var(--accent); font-size: 1.1rem;">${l.title}</strong><br>
-            <span style="font-family: 'Courier New', Courier, monospace; font-size: 0.9rem; display: block; margin-top: 0.5rem; white-space: pre-wrap;">${l.content}</span>
-        </div>
-    `).join('');
+        <div class="lore-card" style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="flex:1;">
+                <div class="lore-category">${escHtml(l.category)}</div>
+                <strong style="color:var(--accent);">${escHtml(l.title)}</strong>
+                ${l.content ? `<p style="font-family:var(--font-mono); font-size:0.88rem; margin-top:0.4rem; white-space:pre-wrap;">${escHtml(l.content)}</p>` : ''}
+            </div>
+            <button class="btn btn-danger btn-sm" style="margin-left:0.5rem;" onclick="deleteLore(${storyId}, ${l.id})">✕</button>
+        </div>`).join('');
 }
 
-// Editor Mode
-window.setMode = function(mode) {
-    const container = document.getElementById('editor-container');
-    const textArea = document.getElementById('story-content');
-    container.className = 'view-section';
-    if (mode === 'classic') { container.classList.add('story-mode-classic'); textArea.style.fontFamily = 'var(--font-classic)'; } 
-    else if (mode === 'typewriter') { container.classList.add('story-mode-typewriter'); textArea.style.fontFamily = "'Courier New', Courier, monospace"; } 
+window.deleteLore = async function(storyId, loreId) {
+    if (!confirm('Delete this lore entry?')) return;
+    const res = await fetchWithAuth(`/api/stories/${storyId}/hub/lore/${loreId}`, { method: 'DELETE' });
+    if (res && res.ok) { loadLore(storyId); showToast('Lore removed.', 'success'); }
+    else showToast('Failed to delete.', 'error');
 };
 
-// CHAOS ENGINE LOGIC
+// ── Editor mode ───────────────────────────────────────────────
+
+window.setMode = function(mode) {
+    const container = document.getElementById('editor-container');
+    container.className = 'view-section';
+    if (mode === 'classic') container.classList.add('story-mode-classic');
+    else if (mode === 'typewriter') container.classList.add('story-mode-typewriter');
+};
+
+// ── Chaos Engine ──────────────────────────────────────────────
+
 window.triggerChaos = function() {
     const twists = [
-        "The mentor character was secretly working for the villain the entire time.",
-        "Gravity suddenly stops working, but only inside the main character's house.",
-        "Your protagonist discovers they have been dead for three years.",
-        "The most useless item in the protagonist's inventory is actually the key to saving the world.",
-        "A portal opens and drops a very confused pizza delivery driver into the middle of the climax.",
-        "The villain's evil plan is actually extremely reasonable and benefits the local economy.",
-        "Every single character swaps bodies with the person they hate the most.",
-        "The sacred prophecy was actually just a bad translation of a 2000-year-old grocery list.",
-        "A minor background character suddenly inherits a cursed bakery and derails the plot.",
-        "The ancient magical artifact requires a monthly subscription fee to work."
+        "The mentor was working for the villain the entire time.",
+        "Gravity stops working — but only inside the protagonist's house.",
+        "Your hero discovers they've been dead for three years.",
+        "The most useless item in the inventory is the key to saving the world.",
+        "A portal drops a very confused pizza delivery driver into the climax.",
+        "The villain's plan is actually extremely reasonable and benefits the local economy.",
+        "Every character swaps bodies with the person they hate most.",
+        "The sacred prophecy was a bad translation of a 2,000-year-old grocery list.",
+        "A minor background character inherits a cursed bakery and derails the plot.",
+        "The ancient artifact requires a monthly subscription fee to work.",
+        "The map has been upside down the entire quest.",
+        "The love interest is actually the protagonist's long-lost twin.",
+        "The dragon turns out to be the chosen one, not the hero.",
+        "Time is moving backwards, but only in the library."
     ];
     const box = document.getElementById('chaos-output');
     box.style.display = 'block';
-    box.innerHTML = "<em>Summoning chaos...</em>";
-    
+    box.textContent = 'Summoning chaos…';
     setTimeout(() => {
-        const randomTwist = twists[Math.floor(Math.random() * twists.length)];
-        box.innerHTML = randomTwist;
-    }, 600);
+        box.textContent = twists[Math.floor(Math.random() * twists.length)];
+    }, 500);
 };
 
-// Auth
-function setupAuthListeners() {
-    const loginForm = document.getElementById('login-form');
-    const registerForm = document.getElementById('register-form');
-    const msgBox = document.getElementById('auth-msg');
+// ── XSS safe string ──────────────────────────────────────────
 
-    if(registerForm) {
-        registerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('reg-user').value, password: document.getElementById('reg-pass').value }) });
-            const data = await res.json();
-            msgBox.textContent = data.message || data.error;
-        });
-    }
-
-    if(loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('login-user').value, password: document.getElementById('login-pass').value }) });
-            const data = await res.json();
-            msgBox.textContent = data.message || data.error;
-            if (res.ok) {
-                localStorage.setItem('token', data.token); localStorage.setItem('username', data.username);
-                setTimeout(() => window.location.hash = '#/dashboard', 500); 
-            }
-        });
-    }
+function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
-
-window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', router);
-const themeBtn = document.getElementById('theme-toggle');
-if (localStorage.getItem('theme') === 'light') document.body.classList.add('theme-light');
-themeBtn.addEventListener('click', () => { document.body.classList.toggle('theme-light'); localStorage.setItem('theme', document.body.classList.contains('theme-light') ? 'light' : 'dark'); });

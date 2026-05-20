@@ -7,18 +7,22 @@
     <link rel="stylesheet" href="vintage.css">
 </head>
 <body>
- <nav class="navbar">
-        <h1>Story Tracker</h1>
+    <nav class="navbar">
+        <a href="#/dashboard" class="navbar-brand">
+            Story Tracker
+            <span>Writer's Desk</span>
+        </a>
         <div class="nav-links">
-            <button id="theme-toggle" class="theme-btn">Switch Theme</button>
-            <a href="#/dashboard">Dashboard</a>
-            <a href="#/stories">Stories</a>
-            <a href="#/login">Login</a>
+            <a href="#/dashboard" id="nav-dashboard">Dashboard</a>
+            <a href="#/search" id="nav-search">Search</a>
+            <a href="#/login" id="nav-login">Login</a>
+            <button id="theme-toggle" class="btn btn-sm">☀ Theme</button>
+            <button id="nav-logout" class="btn btn-sm btn-danger" style="display:none">Logout</button>
         </div>
     </nav>
-    
+
     <main id="app" class="scroll-container"></main>
-    
-    <script src="app.js?v=4"></script>
+
+    <script src="app.js"></script>
 </body>
 </html>
