@@ -9,7 +9,6 @@ async function fetchWithAuth(url, options = {}) {
     return res;
 }
 
-// Global UI Helper: Toggle "Other" inputs
 window.toggleOther = function(selectId, inputId) {
     const select = document.getElementById(selectId);
     const input = document.getElementById(inputId);
@@ -19,7 +18,7 @@ window.toggleOther = function(selectId, inputId) {
     } else {
         input.style.display = 'none';
         input.required = false;
-        input.value = ''; // Clear it out
+        input.value = ''; 
     }
 };
 
@@ -67,7 +66,6 @@ async function renderDashboard() {
                 <h3>Start a New Story</h3>
                 <form id="new-story-form" style="display: flex; gap: 1rem; margin-top: 1rem; align-items: flex-start;">
                     <input type="text" id="new-title" placeholder="Story Title" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    
                     <div style="flex: 2; display: flex; flex-direction: column; gap: 0.5rem;">
                         <select id="new-genre" onchange="toggleOther('new-genre', 'new-genre-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
                             <option value="" disabled selected>Select Genre...</option>
@@ -76,12 +74,12 @@ async function renderDashboard() {
                             <option value="Mystery/Thriller">Mystery/Thriller</option>
                             <option value="Romance">Romance</option>
                             <option value="Historical">Historical</option>
+                            <option value="Horror">Horror</option>
                             <option value="Other">Other...</option>
                         </select>
                         <input type="text" id="new-genre-other" placeholder="Type custom genre..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
                     </div>
-
-                    <button type="submit" class="theme-btn" style="flex: 1;">Create Story</button>
+                    <button type="submit" class="theme-btn" style="flex: 1;">Create</button>
                 </form>
             </div>
             <div style="width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 1rem;">
@@ -108,13 +106,8 @@ async function renderDashboard() {
         e.preventDefault();
         const selectVal = document.getElementById('new-genre').value;
         const finalGenre = selectVal === 'Other' ? document.getElementById('new-genre-other').value : selectVal;
-
         if(!finalGenre) return alert("Please select or type a genre.");
-
-        await fetchWithAuth('/api/stories', {
-            method: 'POST',
-            body: JSON.stringify({ title: document.getElementById('new-title').value, genre: finalGenre })
-        });
+        await fetchWithAuth('/api/stories', { method: 'POST', body: JSON.stringify({ title: document.getElementById('new-title').value, genre: finalGenre }) });
         renderDashboard();
     });
 }
@@ -132,62 +125,108 @@ async function renderHub(storyId) {
                 <h2 style="border: none; margin: 0;">${story.title}</h2>
             </div>
 
-            <div style="display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; width: 100%; max-width: 900px;">
+            <div style="display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; width: 100%; max-width: 900px; overflow-x: auto;">
                 <button class="theme-btn" onclick="switchTab('cast')">Characters</button>
                 <button class="theme-btn" onclick="switchTab('lore')">World & Plot</button>
                 <button class="theme-btn" onclick="switchTab('manuscript')">Manuscript</button>
+                <button class="theme-btn" onclick="switchTab('chaos')" style="background: var(--text-main); color: var(--bg-main);">🎲 Chaos Engine</button>
             </div>
 
             <div id="tab-cast" class="hub-tab" style="width: 100%; max-width: 900px; display: none;">
                 <h3>Character Roster</h3>
-                <form id="char-form" style="display: flex; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; align-items: flex-start;">
-                    <input type="text" id="char-name" placeholder="Name" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                <form id="char-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; background: var(--bg-surface); padding: 1.5rem; border: 1px solid var(--border-color);">
                     
-                    <select id="char-role" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                        <option value="Protagonist">Protagonist</option>
-                        <option value="Antagonist">Antagonist</option>
-                        <option value="Supporting">Supporting</option>
-                        <option value="Minor">Minor</option>
-                    </select>
-
-                    <div style="flex: 2; display: flex; flex-direction: column; gap: 0.5rem;">
-                        <select id="char-trait" onchange="toggleOther('char-trait', 'char-trait-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                            <option value="" disabled selected>Main Trait...</option>
-                            <option value="Brave">Brave</option>
-                            <option value="Cunning">Cunning</option>
-                            <option value="Loyal">Loyal</option>
-                            <option value="Clumsy">Clumsy</option>
-                            <option value="Arrogant">Arrogant</option>
-                            <option value="Other">Other...</option>
+                    <div style="display: flex; gap: 1rem;">
+                        <input type="text" id="char-name" placeholder="Character Name" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                        
+                        <select id="char-role" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                            <option value="Protagonist">Protagonist</option>
+                            <option value="Antagonist">Antagonist</option>
+                            <option value="Mentor">Mentor</option>
+                            <option value="Sidekick">Sidekick</option>
+                            <option value="Love Interest">Love Interest</option>
+                            <option value="Comic Relief">Comic Relief</option>
+                            <option value="Red Shirt (Expendable)">Red Shirt</option>
+                            <option value="Other">Other</option>
                         </select>
-                        <input type="text" id="char-trait-other" placeholder="Type custom trait..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                        
+                        <select id="char-status" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                            <option value="Alive">🟢 Alive</option>
+                            <option value="Dead">💀 Dead</option>
+                            <option value="Missing">❓ Missing</option>
+                            <option value="Undead/Ghost">👻 Undead</option>
+                        </select>
                     </div>
 
-                    <button type="submit" class="theme-btn" style="flex: 1;">Add</button>
+                    <div style="display: flex; gap: 1rem;">
+                        <div style="flex: 1; display: flex; flex-direction: column; gap: 0.5rem;">
+                            <select id="char-trait" onchange="toggleOther('char-trait', 'char-trait-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                                <option value="" disabled selected>Dominant Trait...</option>
+                                <option value="Brave">Brave</option>
+                                <option value="Cunning">Cunning</option>
+                                <option value="Loyal">Loyal</option>
+                                <option value="Arrogant">Arrogant</option>
+                                <option value="Cowardly">Cowardly</option>
+                                <option value="Charismatic">Charismatic</option>
+                                <option value="Unhinged">Unhinged</option>
+                                <option value="Naïve">Naïve</option>
+                                <option value="Other">Other...</option>
+                            </select>
+                            <input type="text" id="char-trait-other" placeholder="Type custom trait..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                        </div>
+                    </div>
+
+                    <textarea id="char-desc" placeholder="Character background, secrets, or notes..." rows="3" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
+
+                    <button type="submit" class="theme-btn" style="align-self: flex-start;">Add Character</button>
                 </form>
                 <div id="char-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
             </div>
 
             <div id="tab-lore" class="hub-tab" style="width: 100%; max-width: 900px; display: none;">
                 <h3>World Building & Plot Notes</h3>
-                <form id="lore-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem;">
-                    <input type="text" id="lore-title" placeholder="Topic (e.g., Magic System, Chapter 1 Outline)" required style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <textarea id="lore-content" placeholder="Add your notes here..." rows="3" required style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
-                    <button type="submit" class="theme-btn" style="align-self: flex-start;">Save Note</button>
+                <form id="lore-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; background: var(--bg-surface); padding: 1.5rem; border: 1px solid var(--border-color);">
+                    
+                    <div style="display: flex; gap: 1rem;">
+                        <select id="lore-cat" onchange="toggleOther('lore-cat', 'lore-cat-other')" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                            <option value="Plot Point">Plot Point / Event</option>
+                            <option value="Magic / Rules">Magic / Rules</option>
+                            <option value="Politics / Factions">Politics / Factions</option>
+                            <option value="History / Myth">History / Myth</option>
+                            <option value="Geography / Location">Geography / Location</option>
+                            <option value="Technology">Technology</option>
+                            <option value="Other">Other...</option>
+                        </select>
+                        <input type="text" id="lore-cat-other" placeholder="Custom Category..." style="display:none; flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                        
+                        <input type="text" id="lore-title" placeholder="Title (e.g., The Fall of the Republic)" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                    </div>
+                    
+                    <textarea id="lore-content" placeholder="Dump your detailed notes here..." rows="4" required style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit; resize: vertical;"></textarea>
+                    
+                    <button type="submit" class="theme-btn" style="align-self: flex-start;">Pin to Board</button>
                 </form>
                 <div id="lore-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
             </div>
 
             <div id="tab-manuscript" class="hub-tab" style="width: 100%; max-width: 900px; display: block;">
                 <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                    <button class="theme-btn" onclick="setMode('classic')">Classic</button>
+                    <button class="theme-btn" onclick="setMode('classic')" style="margin-right: 0.5rem;">Classic</button>
                     <button class="theme-btn" onclick="setMode('typewriter')">Typewriter</button>
-                    <button class="theme-btn" onclick="setMode('focus')">Dark Focus</button>
                 </div>
                 <textarea id="story-content" style="width: 100%; height: 50vh; background: transparent; color: inherit; border: none; outline: none; resize: none; line-height: 1.8; font-size: inherit; font-family: inherit;" placeholder="Start drafting...">${story.content || ''}</textarea>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
                     <span id="save-status" style="color: var(--accent);"></span>
                     <button id="save-btn" class="theme-btn">Save Draft</button>
+                </div>
+            </div>
+
+            <div id="tab-chaos" class="hub-tab" style="width: 100%; max-width: 900px; display: none; text-align: center; padding: 4rem 2rem;">
+                <h3 style="font-size: 2rem; margin-bottom: 1rem;">The Chaos Engine</h3>
+                <p style="color: var(--text-muted); margin-bottom: 2rem;">Writer's block? Click the button to inject absolute chaos into your story.</p>
+                <button class="theme-btn" onclick="triggerChaos()" style="padding: 1rem 2rem; font-size: 1.2rem; background: var(--text-main); color: var(--bg-main); font-weight: bold;">Generate Plot Twist</button>
+                
+                <div id="chaos-output" style="margin-top: 3rem; font-size: 1.5rem; font-family: 'Courier New', Courier, monospace; color: var(--accent); min-height: 100px; padding: 2rem; border: 2px dashed var(--border-color); display: none;">
                 </div>
             </div>
         </section>
@@ -199,16 +238,15 @@ async function renderHub(storyId) {
         document.getElementById(`tab-${tabName}`).style.display = 'block';
     };
 
-    // Load Data for Tabs
+    // Load Data
     loadCharacters(storyId);
     loadLore(storyId);
 
-    // Form Submissions
+    // Form Submissions: Characters
     document.getElementById('char-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const selectVal = document.getElementById('char-trait').value;
         const finalTrait = selectVal === 'Other' ? document.getElementById('char-trait-other').value : selectVal;
-
         if(!finalTrait) return alert("Please select or type a trait.");
 
         await fetchWithAuth(`/api/stories/${storyId}/hub/characters`, {
@@ -216,7 +254,9 @@ async function renderHub(storyId) {
             body: JSON.stringify({ 
                 name: document.getElementById('char-name').value, 
                 role: document.getElementById('char-role').value, 
-                trait: finalTrait 
+                trait: finalTrait,
+                status: document.getElementById('char-status').value,
+                description: document.getElementById('char-desc').value
             })
         });
         document.getElementById('char-form').reset();
@@ -224,16 +264,22 @@ async function renderHub(storyId) {
         loadCharacters(storyId);
     });
 
+    // Form Submissions: Lore
     document.getElementById('lore-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const selectVal = document.getElementById('lore-cat').value;
+        const finalCat = selectVal === 'Other' ? document.getElementById('lore-cat-other').value : selectVal;
+
         await fetchWithAuth(`/api/stories/${storyId}/hub/lore`, {
             method: 'POST',
             body: JSON.stringify({ 
+                category: finalCat,
                 title: document.getElementById('lore-title').value, 
                 content: document.getElementById('lore-content').value 
             })
         });
         document.getElementById('lore-form').reset();
+        document.getElementById('lore-cat-other').style.display = 'none';
         loadLore(storyId);
     });
 
@@ -241,7 +287,6 @@ async function renderHub(storyId) {
     const textArea = document.getElementById('story-content');
     const saveBtn = document.getElementById('save-btn');
     const saveStatus = document.getElementById('save-status');
-
     if(textArea) {
         textArea.addEventListener('input', () => saveStatus.textContent = '* Unsaved changes');
         saveBtn.addEventListener('click', async () => {
@@ -256,15 +301,19 @@ async function renderHub(storyId) {
     }
 }
 
-// Helper fetchers for Hub Data
+// Fetchers
 async function loadCharacters(storyId) {
     const res = await fetchWithAuth(`/api/stories/${storyId}/hub/characters`);
     const chars = await res.json();
     const list = document.getElementById('char-list');
     list.innerHTML = chars.map(c => `
-        <div style="padding: 1rem; border-left: 3px solid var(--accent); background: var(--bg-surface);">
-            <strong>${c.name}</strong> <span style="color: var(--text-muted);">(${c.role})</span><br>
-            <em>Trait: ${c.trait}</em>
+        <div style="padding: 1rem; border-left: 3px solid ${c.status === 'Dead' ? '#ff4444' : 'var(--accent)'}; background: var(--bg-surface);">
+            <div style="display: flex; justify-content: space-between;">
+                <strong>${c.name}</strong> 
+                <span style="font-size: 0.9rem;">${c.status}</span>
+            </div>
+            <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">${c.role} | Trait: ${c.trait}</div>
+            ${c.description ? `<em style="font-size: 0.9rem; opacity: 0.8;">${c.description}</em>` : ''}
         </div>
     `).join('');
 }
@@ -275,22 +324,47 @@ async function loadLore(storyId) {
     const list = document.getElementById('lore-list');
     list.innerHTML = lore.map(l => `
         <div style="padding: 1rem; border: 1px solid var(--border-color); background: var(--bg-surface);">
-            <strong style="color: var(--accent);">${l.title}</strong><br>
-            <span style="font-family: 'Courier New', Courier, monospace; font-size: 0.9rem;">${l.content}</span>
+            <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.2rem;">${l.category}</div>
+            <strong style="color: var(--accent); font-size: 1.1rem;">${l.title}</strong><br>
+            <span style="font-family: 'Courier New', Courier, monospace; font-size: 0.9rem; display: block; margin-top: 0.5rem; white-space: pre-wrap;">${l.content}</span>
         </div>
     `).join('');
 }
 
+// Editor Mode
 window.setMode = function(mode) {
     const container = document.getElementById('editor-container');
     const textArea = document.getElementById('story-content');
     container.className = 'view-section';
     if (mode === 'classic') { container.classList.add('story-mode-classic'); textArea.style.fontFamily = 'var(--font-classic)'; } 
     else if (mode === 'typewriter') { container.classList.add('story-mode-typewriter'); textArea.style.fontFamily = "'Courier New', Courier, monospace"; } 
-    else if (mode === 'focus') { container.classList.add('story-mode-focus'); textArea.style.fontFamily = 'var(--font-classic)'; }
 };
 
-// --- AUTH LOGIC ---
+// CHAOS ENGINE LOGIC
+window.triggerChaos = function() {
+    const twists = [
+        "The mentor character was secretly working for the villain the entire time.",
+        "Gravity suddenly stops working, but only inside the main character's house.",
+        "Your protagonist discovers they have been dead for three years.",
+        "The most useless item in the protagonist's inventory is actually the key to saving the world.",
+        "A portal opens and drops a very confused pizza delivery driver into the middle of the climax.",
+        "The villain's evil plan is actually extremely reasonable and benefits the local economy.",
+        "Every single character swaps bodies with the person they hate the most.",
+        "The sacred prophecy was actually just a bad translation of a 2000-year-old grocery list.",
+        "A minor background character suddenly inherits a cursed bakery and derails the plot.",
+        "The ancient magical artifact requires a monthly subscription fee to work."
+    ];
+    const box = document.getElementById('chaos-output');
+    box.style.display = 'block';
+    box.innerHTML = "<em>Summoning chaos...</em>";
+    
+    setTimeout(() => {
+        const randomTwist = twists[Math.floor(Math.random() * twists.length)];
+        box.innerHTML = randomTwist;
+    }, 600);
+};
+
+// Auth
 function setupAuthListeners() {
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
