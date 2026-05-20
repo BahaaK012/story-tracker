@@ -9,15 +9,25 @@ async function fetchWithAuth(url, options = {}) {
     return res;
 }
 
+// Global UI Helper: Toggle "Other" inputs
+window.toggleOther = function(selectId, inputId) {
+    const select = document.getElementById(selectId);
+    const input = document.getElementById(inputId);
+    if (select.value === 'Other') {
+        input.style.display = 'block';
+        input.required = true;
+    } else {
+        input.style.display = 'none';
+        input.required = false;
+        input.value = ''; // Clear it out
+    }
+};
+
 async function router() {
     let hash = window.location.hash || '#/dashboard';
-    
-    // Fix for the 404: Both Dashboard and Stories link to the same place
     if (hash === '#/dashboard' || hash === '#/stories') return renderDashboard();
-    
     if (hash.startsWith('#/hub/')) return renderHub(hash.split('/')[2]);
     if (hash === '#/login') return renderLogin();
-    
     app.innerHTML = `<section class="view-section"><h2>404 - Page Not Found</h2></section>`;
 }
 
@@ -53,15 +63,28 @@ async function renderDashboard() {
     let html = `
         <section class="view-section">
             <h2>${username}'s Dashboard</h2>
-            <div style="width: 100%; max-width: 700px; margin-bottom: 2rem; padding: 1.5rem; background: var(--bg-surface); border: 1px solid var(--border-color);">
+            <div style="width: 100%; max-width: 800px; margin-bottom: 2rem; padding: 1.5rem; background: var(--bg-surface); border: 1px solid var(--border-color);">
                 <h3>Start a New Story</h3>
-                <form id="new-story-form" style="display: flex; gap: 1rem; margin-top: 1rem;">
-                    <input type="text" id="new-title" placeholder="Story Title" required style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <input type="text" id="new-genre" placeholder="Genre" required style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <button type="submit" class="theme-btn">Create Story</button>
+                <form id="new-story-form" style="display: flex; gap: 1rem; margin-top: 1rem; align-items: flex-start;">
+                    <input type="text" id="new-title" placeholder="Story Title" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                    
+                    <div style="flex: 2; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <select id="new-genre" onchange="toggleOther('new-genre', 'new-genre-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                            <option value="" disabled selected>Select Genre...</option>
+                            <option value="Fantasy">Fantasy</option>
+                            <option value="Sci-Fi">Sci-Fi</option>
+                            <option value="Mystery/Thriller">Mystery/Thriller</option>
+                            <option value="Romance">Romance</option>
+                            <option value="Historical">Historical</option>
+                            <option value="Other">Other...</option>
+                        </select>
+                        <input type="text" id="new-genre-other" placeholder="Type custom genre..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                    </div>
+
+                    <button type="submit" class="theme-btn" style="flex: 1;">Create Story</button>
                 </form>
             </div>
-            <div style="width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 1rem;">
                 <h3>Your Projects</h3>
     `;
 
@@ -74,7 +97,7 @@ async function renderDashboard() {
                         <h4 style="color: var(--accent); font-size: 1.2rem; margin-bottom: 0.3rem;">${story.title}</h4>
                         <small style="color: var(--text-muted);">${story.genre}</small>
                     </div>
-                    <a href="#/hub/${story.id}" class="theme-btn" style="text-decoration: none;">Open Story Bible</a>
+                    <a href="#/hub/${story.id}" class="theme-btn" style="text-decoration: none;">Open Project Hub</a>
                 </div>`;
         });
     }
@@ -83,15 +106,20 @@ async function renderDashboard() {
 
     document.getElementById('new-story-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const selectVal = document.getElementById('new-genre').value;
+        const finalGenre = selectVal === 'Other' ? document.getElementById('new-genre-other').value : selectVal;
+
+        if(!finalGenre) return alert("Please select or type a genre.");
+
         await fetchWithAuth('/api/stories', {
             method: 'POST',
-            body: JSON.stringify({ title: document.getElementById('new-title').value, genre: document.getElementById('new-genre').value })
+            body: JSON.stringify({ title: document.getElementById('new-title').value, genre: finalGenre })
         });
         renderDashboard();
     });
 }
 
-// --- THE STORY BIBLE / HUB ---
+// --- THE PROJECT HUB ---
 async function renderHub(storyId) {
     const res = await fetchWithAuth(`/api/stories/${storyId}`);
     if (!res) return;
@@ -112,16 +140,30 @@ async function renderHub(storyId) {
 
             <div id="tab-cast" class="hub-tab" style="width: 100%; max-width: 900px; display: none;">
                 <h3>Character Roster</h3>
-                <form id="char-form" style="display: flex; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem;">
-                    <input type="text" id="char-name" placeholder="Name" required style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <select id="char-role" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                <form id="char-form" style="display: flex; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; align-items: flex-start;">
+                    <input type="text" id="char-name" placeholder="Name" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                    
+                    <select id="char-role" style="flex: 1; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
                         <option value="Protagonist">Protagonist</option>
                         <option value="Antagonist">Antagonist</option>
                         <option value="Supporting">Supporting</option>
                         <option value="Minor">Minor</option>
                     </select>
-                    <input type="text" id="char-flaw" placeholder="Notes / Arc" required style="flex: 2; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
-                    <button type="submit" class="theme-btn">Add Character</button>
+
+                    <div style="flex: 2; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <select id="char-trait" onchange="toggleOther('char-trait', 'char-trait-other')" style="padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                            <option value="" disabled selected>Main Trait...</option>
+                            <option value="Brave">Brave</option>
+                            <option value="Cunning">Cunning</option>
+                            <option value="Loyal">Loyal</option>
+                            <option value="Clumsy">Clumsy</option>
+                            <option value="Arrogant">Arrogant</option>
+                            <option value="Other">Other...</option>
+                        </select>
+                        <input type="text" id="char-trait-other" placeholder="Type custom trait..." style="display:none; padding: 0.5rem; background: var(--bg-main); color: var(--text-main); border: 1px solid var(--border-color); font-family: inherit;">
+                    </div>
+
+                    <button type="submit" class="theme-btn" style="flex: 1;">Add</button>
                 </form>
                 <div id="char-list" style="display: flex; flex-direction: column; gap: 1rem;"></div>
             </div>
@@ -164,15 +206,21 @@ async function renderHub(storyId) {
     // Form Submissions
     document.getElementById('char-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const selectVal = document.getElementById('char-trait').value;
+        const finalTrait = selectVal === 'Other' ? document.getElementById('char-trait-other').value : selectVal;
+
+        if(!finalTrait) return alert("Please select or type a trait.");
+
         await fetchWithAuth(`/api/stories/${storyId}/hub/characters`, {
             method: 'POST',
             body: JSON.stringify({ 
                 name: document.getElementById('char-name').value, 
                 role: document.getElementById('char-role').value, 
-                flaw: document.getElementById('char-flaw').value 
+                trait: finalTrait 
             })
         });
         document.getElementById('char-form').reset();
+        document.getElementById('char-trait-other').style.display = 'none';
         loadCharacters(storyId);
     });
 
@@ -216,7 +264,7 @@ async function loadCharacters(storyId) {
     list.innerHTML = chars.map(c => `
         <div style="padding: 1rem; border-left: 3px solid var(--accent); background: var(--bg-surface);">
             <strong>${c.name}</strong> <span style="color: var(--text-muted);">(${c.role})</span><br>
-            <em>Notes: ${c.flaw}</em>
+            <em>Trait: ${c.trait}</em>
         </div>
     `).join('');
 }

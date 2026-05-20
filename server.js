@@ -13,7 +13,7 @@ require('./backend/database/db');
 
 // --- Import our Routes ---
 const authRoutes = require('./backend/routes/authRoutes');
-const storyRoutes = require('./backend/routes/storyRoutes');
+const storyRoutes = require('./backend/routes/storyRoutes'); // This now contains the Hub too!
 
 app.use('/api/auth', authRoutes);
 app.use('/api/stories', storyRoutes);

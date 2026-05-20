@@ -21,3 +21,22 @@ CREATE TABLE IF NOT EXISTS stories (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+-- Characters Table
+CREATE TABLE IF NOT EXISTS characters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT DEFAULT 'Supporting',
+    trait TEXT DEFAULT '',
+    FOREIGN KEY (story_id) REFERENCES stories(id)
+);
+
+-- World & Plot Notes
+CREATE TABLE IF NOT EXISTS lore (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    FOREIGN KEY (story_id) REFERENCES stories(id)
+);

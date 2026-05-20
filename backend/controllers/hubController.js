@@ -1,18 +1,20 @@
 const db = require('../database/db');
 
-// Add a new victim (Character)
+// Add a new Character
 exports.addCharacter = (req, res) => {
-    const { name, role, flaw } = req.body;
+    const { name, role, trait } = req.body;
     db.run(
-        `INSERT INTO characters (story_id, name, role, flaw) VALUES (?, ?, ?, ?)`,
-        [req.params.storyId, name, role, flaw],
+        `INSERT INTO characters (story_id, name, role, trait) VALUES (?, ?, ?, ?)`,
+        [req.params.storyId, name, role, trait],
         function(err) {
-            if (err) return res.status(500).json({ error: 'Failed to create character.' });
-            res.json({ message: 'Character added to the meat grinder.', id: this.lastID });
+            if (err) {
+                console.error("DB Error:", err);
+                return res.status(500).json({ error: 'Failed to create character.' });
+            }
+            res.json({ message: 'Character saved.', id: this.lastID });
         }
     );
 };
-
 // Get Characters
 exports.getCharacters = (req, res) => {
     db.all(`SELECT * FROM characters WHERE story_id = ?`, [req.params.storyId], (err, rows) => {
