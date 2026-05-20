@@ -11,9 +11,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 require('./backend/database/db');
 
-// --- CRITICAL FIX: Tell the server where the Auth routes are ---
+// --- Import our Routes ---
 const authRoutes = require('./backend/routes/authRoutes');
+const storyRoutes = require('./backend/routes/storyRoutes');
+
 app.use('/api/auth', authRoutes);
+app.use('/api/stories', storyRoutes);
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', db: 'connected' });

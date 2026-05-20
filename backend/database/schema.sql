@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS stories (
     title TEXT NOT NULL,
     description TEXT,
     genre TEXT,
+    content TEXT DEFAULT '', 
     status TEXT DEFAULT 'planning',
     target_words INTEGER DEFAULT 0,
     current_words INTEGER DEFAULT 0,
